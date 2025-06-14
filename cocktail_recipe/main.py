@@ -1,20 +1,21 @@
-from flask import Flask, request, jsonify, send_from_directory
-import os
+import base64
 import json
-import uuid
-import google.generativeai as genai
-from dotenv import load_dotenv
+import os
 import re
+import uuid
+
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request, send_from_directory
+from openai import OpenAI
 
 # Load API key from .env
 load_dotenv()
-genai_api_key = os.getenv("GEMINI_API_KEY")
-if not genai_api_key:
-    raise EnvironmentError("❌ GEMINI_API_KEY not found in .env file")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    raise EnvironmentError("❌ OPENAI_API_KEY not found in .env file")
 
-# Configure Gemini API
-genai.configure(api_key=genai_api_key)
-model = genai.GenerativeModel("gemini-2.0-flash")
+# Configure OpenAI client
+client = OpenAI(api_key=openai_api_key)
 
 app = Flask(__name__)
 
@@ -35,13 +36,20 @@ def extract_json(text: str):
         return None
 
 
-def generate_recipe(image_url: str, description: str) -> dict | None:
-    """Generate cocktail recipe JSON by sending image URL and description to Gemini."""
+def generate_recipe(image_path: str, description: str) -> dict | None:
+    """Generate cocktail recipe JSON by sending image and description to OpenAI."""
     try:
+        # Read the image file and convert to base64
+        with open(image_path, "rb") as image_file:
+            image_data = base64.b64encode(image_file.read()).decode("utf-8")
+
+        # Format as a data URL with MIME type
+        base64_image = f"data:image/jpeg;base64,{image_data}"
+
         prompt = f"""
 You are a professional mixologist and beverage expert.
 
-Analyze the alcohol bottle shown in this image: {image_url}
+Analyze the alcohol bottle shown in this image.
 
 Use the following user description for extra context: "{description}".
 
@@ -118,11 +126,24 @@ The JSON schema must exactly match this structure:
   }}
 }}
 """
-        response = model.generate_content([prompt])
-        raw_text = response.text.strip()
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": base64_image}},
+                    ],
+                }
+            ],
+            max_tokens=4000,
+        )
+
+        raw_text = response.choices[0].message.content.strip()
         data = extract_json(raw_text)
         if not data:
-            print("❌ Failed to parse JSON from Gemini response.")
+            print("❌ Failed to parse JSON from OpenAI response.")
             print(f"Raw response:\n{raw_text}")
         return data
 
@@ -145,13 +166,14 @@ def cocktail_api():
         save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         image_file.save(save_path)
 
-        # Construct image URL accessible by Gemini (must be public or tunneled)
-        image_url = request.host_url + f"uploads/{filename}"
-
-        # Generate cocktail data from image URL and description
-        data = generate_recipe(image_url, description)
+        # Generate cocktail data from the saved image file and description
+        data = generate_recipe(save_path, description)
         if not data:
             return jsonify({"error": "Failed to generate cocktail data"}), 500
+
+        # Add the image URL to the response for frontend display
+        if data and "image" in data:
+            data["image"] = request.host_url + f"uploads/{filename}"
 
         return jsonify(data), 200
 
