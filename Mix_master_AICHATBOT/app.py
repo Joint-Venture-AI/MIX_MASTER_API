@@ -1,45 +1,55 @@
-from flask import Flask, request, jsonify, session
-from werkzeug.utils import secure_filename
 import os
 import io
 import uuid
 import base64
+from flask import Flask, request, jsonify, session
+from werkzeug.utils import secure_filename
 from PIL import Image
-import openai
+from openai import OpenAI
+from dotenv import load_dotenv
 
+# Load .env variables
+load_dotenv()
+
+# Flask setup
 app = Flask(__name__)
 app.secret_key = "your_secret_key"
 app.config["UPLOAD_FOLDER"] = "static/uploads"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-# Set your OpenAI API key here or set environment variable OPENAI_API_KEY
-openai.api_key = os.getenv("OPENAI_API_KEY") or "your_openai_api_key_here"
+# OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Allowed alcohol-related keywords
+ALCOHOL_KEYWORDS = [
+    "alcohol",
+    "drink",
+    "wine",
+    "vodka",
+    "whiskey",
+    "rum",
+    "beer",
+    "gin",
+    "tequila",
+    "brandy",
+    "cocktail",
+    "liquor",
+    "spirits",
+    "bottle",
+    "bourbon",
+]
 
 
-# Helpers
-def save_message(role, message, source="text"):
-    print(f"Saved message from {role}: {message} (source: {source})")
+# Helper: Check if the message is alcohol-related
+def is_alcohol_related(message):
+    return any(keyword in message.lower() for keyword in ALCOHOL_KEYWORDS)
 
 
-def load_chat_history():
-    # You can expand this to keep track of chat history per session if needed
-    return []
-
-
-def remove_duplicates(text):
-    # You can enhance this function to clean repeated texts if necessary
-    return text
-
-
-def get_session_id():
-    if "session_id" not in session:
-        session["session_id"] = str(uuid.uuid4())
-    return session["session_id"]
-
-
+# Helper: Generate image-based alcohol information
 def generate_image_analysis(image_bytes):
     prompt = (
-        "You're an expert bottle identification assistant. Please strictly return ONLY these 12 details in this exact format, using emojis, without any extra sentences. If a field is unknown, write 'Not specified'.\n\n"
+        "You're an expert alcohol identification assistant. Given this image of an alcohol bottle, "
+        "return ONLY these 12 fields in this exact format using emojis. Write 'Not specified' if unknown.\n\n"
         "🔍 Identified alcohol:\n"
         "🌍 Origin:\n"
         "🍸 Alcohol Content:\n"
@@ -55,74 +65,58 @@ def generate_image_analysis(image_bytes):
         "🔄 Ask Again:"
     )
 
-    # Convert image bytes to base64 string for embedding if needed (OpenAI's text models don't handle images)
-    # But OpenAI's GPT-4 Vision or image understanding models require special API calls, not yet public.
-    # For now, we'll encode image as base64 and pass it in prompt (or you may want to use external vision APIs).
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    # Compose the message for chat completion
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert assistant for bottle identification.",
-        },
-        {
-            "role": "user",
-            "content": prompt + "\n\nImage data (base64): " + image_base64,
-        },
-    ]
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",  # or "gpt-4" if you have access, adjust accordingly
-        messages=messages,
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are an expert alcohol assistant."},
+            {"role": "user", "content": prompt},
+            {
+                "role": "user",
+                "content": {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                },
+            },
+        ],
         temperature=0.3,
-        max_tokens=500,
-        n=1,
+        max_tokens=700,
     )
-    return remove_duplicates(response.choices[0].message["content"])
+
+    return response.choices[0].message.content.strip()
 
 
-@app.route("/api/unified", methods=["POST"])
-def api_unified():
+# Helper: Generate response for text query
+def generate_text_response(message):
+    if not is_alcohol_related(message):
+        return "❌ This assistant only supports alcohol-related questions."
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": message}],
+        temperature=0.5,
+        max_tokens=500,
+    )
+    return response.choices[0].message.content.strip()
+
+
+# API route
+@app.route("/api/alcoholbot", methods=["POST"])
+def alcoholbot():
     try:
         response_data = {}
-        session_id = (
-            request.form.get("session_id") or request.json.get("session_id")
-            if request.is_json
-            else None
+
+        # Handle session ID
+        session_id = request.form.get("session_id") or (
+            request.json.get("session_id") if request.is_json else None
         )
         if session_id:
             session["session_id"] = session_id
 
-        # Handle text input
-        message = request.form.get("message") or (
-            request.json.get("text") if request.is_json else None
-        )
-        if message:
-            save_message("user", message)
-            history = load_chat_history()
-
-            # Construct conversation history for OpenAI chat completion
-            messages = [
-                {"role": msg["role"], "content": msg["message"]} for msg in history
-            ]
-            messages.append({"role": "user", "content": message})
-
-            response = openai.ChatCompletion.create(
-                model="gpt-4",  # or "gpt-4"
-                messages=messages,
-                temperature=0.7,
-                max_tokens=300,
-                n=1,
-            )
-            cleaned_text = remove_duplicates(response.choices[0].message["content"])
-            save_message("model", cleaned_text)
-            response_data["text_response"] = cleaned_text
-
-        # Handle image input
+        # --- Handle Form-Data Image Upload ---
         image_file = request.files.get("image")
-        if image_file and image_file.filename != "":
+        if image_file and image_file.filename:
             filename = secure_filename(f"{uuid.uuid4()}_{image_file.filename}")
             path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             image_file.save(path)
@@ -132,35 +126,38 @@ def api_unified():
             image.save(byte_stream, format="JPEG")
             image_bytes = byte_stream.getvalue()
 
-            cleaned_image = generate_image_analysis(image_bytes)
-            uploaded_image_url = f"/{path.replace(os.sep, '/')}"
-            save_message("model", cleaned_image, source="image")
-            response_data["image_response"] = cleaned_image
-            response_data["uploaded_image"] = uploaded_image_url
+            image_response = generate_image_analysis(image_bytes)
+            response_data["image_response"] = image_response
+            response_data["uploaded_image"] = f"/{path.replace(os.sep, '/')}"
 
-        elif request.is_json:
-            image_data = request.json.get("image_base64")
-            if image_data:
-                if "," in image_data:
-                    image_data = image_data.split(",")[1]
-                image_bytes = base64.b64decode(image_data)
-                cleaned_image = generate_image_analysis(image_bytes)
-                save_message("model", cleaned_image, source="image")
-                response_data["image_response"] = cleaned_image
+        # --- Handle JSON Base64 Image ---
+        elif request.is_json and request.json.get("image_base64"):
+            image_data = request.json["image_base64"]
+            if "," in image_data:
+                image_data = image_data.split(",")[1]
+            image_bytes = base64.b64decode(image_data)
+            image_response = generate_image_analysis(image_bytes)
+            response_data["image_response"] = image_response
 
-        if (
-            "text_response" not in response_data
-            and "image_response" not in response_data
-        ):
-            return jsonify({"error": "No valid input provided"}), 400
+        # --- Handle Text Message ---
+        message = request.form.get("message") or (
+            request.json.get("text") if request.is_json else None
+        )
+        if message:
+            text_response = generate_text_response(message)
+            response_data["text_response"] = text_response
 
-        response_data["session_id"] = get_session_id()
+        if not response_data:
+            return jsonify({"success": False, "error": "No valid input provided."}), 400
+
         response_data["success"] = True
+        response_data["session_id"] = session.get("session_id", str(uuid.uuid4()))
         return jsonify(response_data)
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
+# Run server
 if __name__ == "__main__":
     app.run(debug=True)
