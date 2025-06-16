@@ -11,3 +11,16 @@
 2025-05-26 13:07:17,667 - werkzeug - INFO - 192.168.10.38 - - [26/May/2025 13:07:17] "GET / HTTP/1.1" 200 -
 2025-05-26 13:07:17,678 - werkzeug - INFO - 192.168.10.38 - - [26/May/2025 13:07:17] "GET / HTTP/1.1" 200 -
 2025-05-26 13:07:17,847 - werkzeug - INFO - 192.168.10.38 - - [26/May/2025 13:07:17] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-06-16 08:13:40,905 - __main__ - INFO - Starting Alcohol Recipe & Info Generator
+2025-06-16 08:13:40,968 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.10.38:5000
+2025-06-16 08:13:40,968 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-06-16 08:13:40,974 - werkzeug - INFO -  * Restarting with stat
+2025-06-16 08:13:41,782 - __main__ - INFO - Starting Alcohol Recipe & Info Generator
+2025-06-16 08:13:41,791 - werkzeug - WARNING -  * Debugger is active!
+2025-06-16 08:13:41,796 - werkzeug - INFO -  * Debugger PIN: 775-486-944
+2025-06-16 08:13:46,316 - werkzeug - INFO - 192.168.10.38 - - [16/Jun/2025 08:13:46] "GET / HTTP/1.1" 200 -
+2025-06-16 08:13:46,358 - werkzeug - INFO - 192.168.10.38 - - [16/Jun/2025 08:13:46] "GET / HTTP/1.1" 200 -
+2025-06-16 08:13:46,564 - werkzeug - INFO - 192.168.10.38 - - [16/Jun/2025 08:13:46] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
