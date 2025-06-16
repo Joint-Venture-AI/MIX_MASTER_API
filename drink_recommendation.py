@@ -1,89 +1,147 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
-import requests
-import datetime
-from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
-import google.generativeai as genai
+from openai import OpenAI
+import logging
+import json
 
-# Load .env
-load_dotenv()
-
-# Flask setup
+# Initialize Flask app and CORS
 app = Flask(__name__)
+CORS(app)
 
-# API Keys
-WEATHER_API_KEY = os.getenv("OPEN_WEATHER_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Gemini setup
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+# Load environment variables
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+# Verify OpenAI API key
+if not openai_api_key:
+    logger.error("OpenAI API key not found in .env file")
+    raise ValueError("OpenAI API key not found")
+
+# Initialize OpenAI client
+client = OpenAI(api_key=openai_api_key)
+
+# Test OpenAI API connection
+try:
+    test_response = client.models.list()
+    logger.info("OpenAI API connection successful")
+except Exception as e:
+    logger.error(f"OpenAI API connection failed: {str(e)}")
+    raise ValueError("OpenAI API connection failed")
 
 
-def get_weather(lat, lon):
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
-    print("📡 Requesting:", url)
-    res = requests.get(url)
-    data = res.json()
-    print("📦 Response JSON:", data)
+# Helper function to validate input
+def validate_input(data):
+    required_fields = ["mood", "weather", "location"]
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return False, f"Missing or empty field: {field}"
+    return True, ""
 
-    if res.status_code != 200 or "weather" not in data or "main" not in data:
+
+# Helper function to get a public image URL for a dish or drink
+def get_image_url(name):
+    return f"https://source.unsplash.com/featured/?{name.replace(' ', '%20')}"
+
+
+# Helper function to generate recommendation using OpenAI
+def generate_recommendation(mood, weather, location):
+    prompt = f"""
+Based on the mood '{mood}', weather '{weather}', and location '{location}', suggest a location-specific alcoholic drink and suitable food pairings.
+
+The drink should reflect the local culture or ingredients of {location}. Return your result in this exact JSON format:
+
+{{
+  "drink": {{
+    "name": str,
+    "type": str,
+    "alcohol_base": str,
+    "description": str,
+    "alcohol_content": str
+  }},
+  "food_pairings": [
+    {{
+      "name": str,
+      "description": str
+    }}
+  ]
+}}
+
+Only return the JSON object. Do not include markdown or explanations.
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a culinary and mixology expert specializing in local food and drink recommendations.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=600,
+        )
+        # Extract and parse the response
+        result = response.choices[0].message.content
+        result = result.strip().lstrip("```json").rstrip("```").strip()
+
+        recommendation = json.loads(result)
+
+        # Add image URLs
+        recommendation["drink"]["image"] = get_image_url(
+            recommendation["drink"]["name"]
+        )
+        for food in recommendation["food_pairings"]:
+            food["image"] = get_image_url(food["name"])
+
+        return recommendation
+    except Exception as e:
+        logger.error(f"Error generating recommendation: {str(e)}")
         return None
 
-    weather = data["weather"][0]["description"].capitalize()
-    temp = data["main"]["temp"]
-    country = data["sys"]["country"]
-    return {"summary": f"{weather}, {temp}°C", "country": country}
 
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-
-@app.route("/get_suggestion", methods=["POST"])
-def get_suggestion():
+@app.route("/api/drink_recommend", methods=["POST"])
+def recommend():
     try:
-        lat = request.json.get("lat")
-        lon = request.json.get("lon")
-        mood = request.json.get("mood")
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON data"}), 400
 
-        weather_data = get_weather(lat, lon)
-        if not weather_data:
-            print("❌ Weather API returned None or error")
-            return jsonify({"error": "Weather data unavailable"}), 400
+        # Validate input
+        is_valid, error_message = validate_input(data)
+        if not is_valid:
+            return jsonify({"error": error_message}), 400
 
-        weather_info = weather_data["summary"]
-        country = weather_data["country"]
-
-        hour = datetime.datetime.now().hour
-        time_of_day = (
-            "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
+        mood = data["mood"]
+        weather = data["weather"]
+        location = data["location"]
+        logger.info(
+            f"Received request: mood={mood}, weather={weather}, location={location}"
         )
 
-        prompt = f"""
-        You are an expert alcohol and food pairing assistant.
+        # Generate recommendation
+        recommendation = generate_recommendation(mood, weather, location)
+        if not recommendation:
+            return jsonify({"error": "Failed to generate recommendation"}), 500
 
-        Based on the following:
-        - Current weather: {weather_info}
-        - Time of day: {time_of_day}
-        - Mood: {mood}
-        - Country: {country}
+        # Structure the response
+        response = {
+            "mood": mood,
+            "weather": weather,
+            "location": location,
+            "recommendation": recommendation,
+        }
+        return jsonify(response), 200
 
-        Suggest the following:
-        1. A **specific alcohol brand** (preferably one available/popular in {country}).
-        2. A **recommended food item** that complements it well, based on the weather and mood.
-        3. A short, fun reason why this pairing is perfect right now.
-
-        Make the response short, local-friendly, and under 3 sentences. Keep it engaging and relevant to the local vibe.
-        """
-        response = model.generate_content(prompt)
-        suggestion = response.text.strip()
-        return jsonify({"suggestion": suggestion})
     except Exception as e:
-        print("🔥 Error:", e)
-        return jsonify({"error": "Internal Server Error"}), 500
+        logger.error(f"Error processing request: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=5000)

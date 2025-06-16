@@ -1,204 +1,136 @@
-import base64
-import json
 import os
-import re
-import uuid
-import imghdr
-
+import base64
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
 from openai import OpenAI
 
-# Load API key from .env
+# Load environment variables
 load_dotenv()
-openai_api_key = os.getenv("OPENAI_API_KEY")
-if not openai_api_key:
-    raise EnvironmentError("❌ OPENAI_API_KEY not found in .env file")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Configure OpenAI client
-client = OpenAI(api_key=openai_api_key)
-
+# Initialize Flask app and OpenAI client
 app = Flask(__name__)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Folder to save uploaded images
-UPLOAD_FOLDER = "uploads"
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Prompt template
+PROMPT = """
+You are a professional bartender and drinks expert. Based ONLY on the image of an alcohol bottle I uploaded, generate a full cocktail or drink recipe in this exact visual structure and format:
 
+---
+[Alcohol Name]
+Alcohol Content: [e.g., how much alcohol contains in the bottle]
+Ingredient List: [List all ingredients used in the drink]
+Flavor Profile: [Sweet/Bitter/Citrusy/etc.]
+Drink Strength: [Light/Medium/Strong]
+Glass Type: [e.g., Old-Fashioned, Highball, Margarita]
 
-def extract_json(text: str):
-    """Try to extract JSON object from text using regex."""
-    json_match = re.search(r"(\{.*\})", text, re.DOTALL)
-    if not json_match:
-        return None
-    try:
-        return json.loads(json_match.group(1))
-    except json.JSONDecodeError:
-        return None
+⭐ ratings all over the word(eg. 4.7/5) (how many reviews(eg. 10))
 
+🔽 Servings: 4
+🍳 Recipe: real Youtube Video Link of the alcohol bottle recipe
 
-def generate_recipe(image_path: str, description: str) -> dict | None:
-    """Generate cocktail recipe JSON by sending image and description to OpenAI."""
-    try:
-        # Read image and encode to base64
-        with open(image_path, "rb") as image_file:
-            raw_data = image_file.read()
-            image_data = base64.b64encode(raw_data).decode("utf-8")
+---
 
-        # Detect image type
-        image_type = imghdr.what(None, h=raw_data)
-        if image_type not in ["jpeg", "png"]:
-            raise ValueError(f"Unsupported image format: {image_type}")
+### Step - 01
 
-        mime_type = f"image/{image_type}"
-        base64_image = f"data:{mime_type};base64,{image_data}"
+Ingredients
+| Ingredient       | ml  |
+|------------------|-----|
+| [Name]           | [XX]|
+| ...              | ... |
 
-        # Prompt
-        prompt = f"""
-You are a professional mixologist and beverage expert.
+---
 
-Analyze the alcohol bottle shown in this image.
+Tastes Great With
+🍗 [Dish 1]
+🥗 [Dish 2]
+🍲 Recipe
 
-Use the following user description for extra context: "{description}".
+---
 
-Based on this, generate a complete structured JSON object that includes accurate cocktail metadata, flavor insights, mixology steps, and pairing suggestions.
+How to Make It
+[Detailed drink preparation instructions here.]
 
-⚠️ Output ONLY valid JSON. Do NOT include explanations, markdown, or any extra text.
+---
 
-The JSON schema must exactly match this structure:
-{{
-  "name": "name of the alochol",
-  "alcohol_content": "String",
-  "type": "String",
-  "description": "String",
-  "image": "String",
-  "flavor_profile": "String",
-  "strength": "String",
-  "difficulty": "String",
-  "glass": "String",
-  "rating": {{
-    "score": Float,
-    "total_ratings": Integer
-  }},
-  "tags": ["String"],
-  "ingredients": [
-    {{
-      "name": "String",
-      "amount": "String",
-      "category": "String"
-    }}
-  ],
-  "garnish": ["String"],
-  "instructions": {{
-    "how_to_make": "String",
-    "steps": [
-      {{
-        "step": Integer,
-        "title": "String",
-        "instruction": "String",
-        "tip": "String"
-      }}
-    ]
-  }},
-  "variations": [
-    {{
-      "name": "String",
-      "description": "String",
-      "key_ingredient": "String"
-    }}
-  ],
-  "serving_info": {{
-    "best_time": "String",
-    "occasion": "String",
-    "temperature": "String",
-    "garnish_placement": "String"
-  }},
-  "nutritional_info": {{
-    "calories": Integer,
-    "alcohol_content": "String",
-    "sugar_content": "String"
-  }},
-  "pairing_recommendations": [
-    {{
-      "category": "String",
-      "items": ["String"],
-      "emoji": "String"
-    }}
-  ],
-  "professional_tips": ["String"],
-  "history": {{
-    "origin": "String",
-    "creator": "String",
-    "year_created": "String",
-    "story": "String"
-  }}
-}}
+### Step - 02
+Prepare the Glass
+- [Instruction 1]
+📽️ *Visual Tip: [Tip here]*
+
+---
+
+### Step - 03
+Mix the Ingredients
+- [Instruction 1]
+💡 *Tip: [Tip here]*
+
+---
+
+### Step - 04
+Strain & Serve
+- [Instruction 1]
+
+---
+
+### Step - 05
+Garnish & Enjoy
+- [Instruction 1]
+🎥 *Optional: [Extra fun line]*
+
+---
+
+Only output the formatted recipe. Do not explain anything else.
 """
 
+
+# Helper: Encode image to base64
+def encode_image_to_base64(image_file):
+    return base64.b64encode(image_file.read()).decode("utf-8")
+
+
+# Endpoint: Upload bottle image and get recipe
+@app.route("/generate_recipe", methods=["POST"])
+def upload_image():
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded."}), 400
+
+    image_file = request.files["image"]
+    if image_file.filename == "":
+        return jsonify({"error": "No selected image."}), 400
+
+    try:
+        # Convert image to base64
+        base64_image = encode_image_to_base64(image_file)
+
+        # Send image and prompt to GPT-4o
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": base64_image}},
+                        {"type": "text", "text": PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            },
+                        },
                     ],
                 }
             ],
-            max_tokens=4000,
+            max_tokens=1200,
         )
 
-        raw_text = response.choices[0].message.content.strip()
-        data = extract_json(raw_text)
-        if not data:
-            print("❌ Failed to parse JSON from OpenAI response.")
-            print(f"Raw response:\n{raw_text}")
-        return data
+        # Extract generated recipe
+        result = response.choices[0].message.content
+        return jsonify({"recipe": result})
 
     except Exception as e:
-        print(f"❌ Exception in generate_recipe(): {e}")
-        return None
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route("/generate-cocktail", methods=["POST"])
-def cocktail_api():
-    if "image" not in request.files or "description" not in request.form:
-        return jsonify({"error": "Missing image or description"}), 400
-
-    image_file = request.files["image"]
-    description = request.form["description"]
-
-    try:
-        # Save image with unique filename
-        filename = f"{uuid.uuid4().hex}.jpg"
-        save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image_file.save(save_path)
-
-        # Generate cocktail data
-        data = generate_recipe(save_path, description)
-        if not data:
-            return jsonify({"error": "Failed to generate cocktail data"}), 500
-
-        # Add image URL to response
-        data["image"] = request.host_url.rstrip("/") + f"/uploads/{filename}"
-
-        return jsonify(data), 200
-
-    except Exception as e:
-        print(f"❌ Error in /generate-cocktail route: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@app.route("/uploads/<filename>")
-def uploaded_file(filename):
-    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"message": "🍸 Welcome to the Cocktail Recipe Generator API"})
-
-
+# Run app
 if __name__ == "__main__":
     app.run(debug=True)
