@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🍷 AlcoholBot</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #chat { height: 400px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f9f9f9; }
+        #message { width: 70%; padding: 5px; }
+        #image { margin-left: 10px; }
+        button { padding: 5px 10px; margin-left: 10px; }
+        .user { color: #2c3e50; font-weight: bold; }
+        .bot { color: #2980b9; }
+        .error { color: #c0392b; }
+    </style>
+</head>
+<body>
+    <h1>🍷 AlcoholBot</h1>
+    <div id="chat"></div>
+    <input type="text" id="message" placeholder="Ask about alcohol...">
+    <input type="file" id="image" accept="image/*">
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="clearHistory()">Clear Chat</button>
+    <script>
+        let sessionId = localStorage.getItem('sessionId') || '';
+        const chatDiv = document.getElementById('chat');
+        const apiUrl = 'http://127.0.0.1:5000/api/alcoholbot';
+        const clearUrl = 'http://127.0.0.1:5000/api/alcoholbot/clear';
+
+        async function sendMessage() {
+            const message = document.getElementById('message').value;
+            const image = document.getElementById('image').files[0];
+            if (!message && !image) {
+                chatDiv.innerHTML += '<p class="error"><b>Error:</b> Please enter a message or upload an image.</p>';
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+                return;
+            }
+
+            const formData = new FormData();
+            if (sessionId) formData.append('session_id', sessionId);
+            if (message) formData.append('message', message);
+            if (image) formData.append('image', image);
+
+            try {
+                console.log('Sending request to:', apiUrl);
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+
+                if (data.success) {
+                    if (!sessionId) {
+                        sessionId = data.session_id;
+                        localStorage.setItem('sessionId', sessionId);
+                        console.log('New session ID:', sessionId);
+                    }
+                    if (data.text_response) {
+                        chatDiv.innerHTML += `<p class="user"><b>You:</b> ${message}</p>`;
+                        chatDiv.innerHTML += `<p class="bot"><b>Bot:</b> ${data.text_response}</p>`;
+                    }
+                    if (data.image_response) {
+                        chatDiv.innerHTML += `<p class="user"><b>You:</b> [Image Uploaded]</p>`;
+                        chatDiv.innerHTML += `<p class="bot"><b>Bot:</b> ${data.image_response.replace(/\n/g, '<br>')}</p>`;
+                    }
+                    chatDiv.scrollTop = chatDiv.scrollHeight;
+                    document.getElementById('message').value = '';
+                    document.getElementById('image').value = '';
+                } else {
+                    chatDiv.innerHTML += `<p class="error"><b>Error:</b> ${data.error}</p>`;
+                    chatDiv.scrollTop = chatDiv.scrollHeight;
+                    console.error('API error:', data.error);
+                }
+            } catch (e) {
+                chatDiv.innerHTML += `<p class="error"><b>Error:</b> Failed to connect to server. Ensure the backend is running at ${apiUrl}.</p>`;
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+                console.error('Fetch error:', e);
+            }
+        }
+
+        async function clearHistory() {
+            if (!sessionId) {
+                chatDiv.innerHTML += '<p class="error"><b>Error:</b> No chat history to clear.</p>';
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+                return;
+            }
+            try {
+                console.log('Clearing history for session:', sessionId);
+                const response = await fetch(clearUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                const data = await response.json();
+                console.log('Clear response:', data);
+                if (data.success) {
+                    chatDiv.innerHTML = '<p>Chat history cleared!</p>';
+                    sessionId = '';
+                    localStorage.removeItem('sessionId');
+                } else {
+                    chatDiv.innerHTML += `<p class="error"><b>Error:</b> ${data.error}</p>`;
+                }
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+            } catch (e) {
+                chatDiv.innerHTML += `<p class="error"><b>Error:</b> Failed to clear history. Ensure the backend is running.</p>`;
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+                console.error('Clear history error:', e);
+            }
+        }
+    </script>
+</body>
+</html>
