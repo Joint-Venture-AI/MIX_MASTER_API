@@ -36,6 +36,8 @@ How to Make It
 ### Step - 02
 Prepare the Glass
 - [Instruction 1]
+- [Instruction 2]
+- [Instruction 3]
 📽️ *Visual Tip: [Tip here]*
 
 ---
@@ -43,6 +45,8 @@ Prepare the Glass
 ### Step - 03
 Mix the Ingredients
 - [Instruction 1]
+- [Instruction 2]
+- [Instruction 3]
 💡 *Tip: [Tip here]*
 
 ---
@@ -50,12 +54,16 @@ Mix the Ingredients
 ### Step - 04
 Strain & Serve
 - [Instruction 1]
+- [Instruction 2]
+- [Instruction 3]
 
 ---
 
 ### Step - 05
 Garnish & Enjoy
 - [Instruction 1]
+- [Instruction 2]
+- [Instruction 3]
 🎥 *Optional: [Extra fun line]*
 
 ---
