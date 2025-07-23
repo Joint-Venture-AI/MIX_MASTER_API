@@ -147,24 +147,34 @@ def clear_history():
 # Generate image analysis response from OpenAI
 def generate_image_analysis(image_bytes):
     prompt = (
-        "You are an expert identification assistant. "
-        "Analyze the given image. Provide answers ONLY in this exact format with emojis:\n\n"
-        "🔍 Identified item: <name or 'Not specified'>\n"
-        "🌍 Origin: <origin or 'Not specified'>\n"
-        "🍸 Content: <percentage or 'Not specified'>\n"
-        "🌾 Main Ingredient: <ingredient or 'Not specified'>\n"
-        "💅 Notes: <notes or 'Not specified'>\n"
-        "🔹 Similar items (at least 3): <list or 'Not specified'>\n"
-        "🔗 Want to use it? Try a suggestion: <suggestion or 'Not specified'>\n"
-        "🔄 Ask Again: <encourage user to ask again or 'Not specified'>\n\n"
-        "If you are not sure about any field, write 'Not specified'."
+        "You are ARIA, an expert mixologist and alcohol identification specialist. "
+        "Analyze this image thoroughly and provide a comprehensive response about the drink/bottle shown. "
+        "Be conversational, informative, and helpful. Include the following information naturally in your response:\n\n"
+        
+        "Start with: 'Got it! Here's what I found:'\n\n"
+        
+        "🔍 **Identified Item**: [Specific name and brand]\n"
+        "🌍 **Origin**: [Country/region of origin]\n" 
+        "🍸 **Alcohol Content**: [ABV percentage if visible]\n"
+        "🌾 **Main Ingredient**: [Primary base spirit/ingredient]\n"
+        "💫 **Tasting Notes**: [Flavor profile, characteristics]\n"
+        "� **Similar Items**: [3+ recommendations of similar products]\n"
+        "🍹 **Cocktail Ideas**: [2-3 specific cocktail suggestions using this item]\n"
+        "� **Price Range**: [Typical price range if known]\n"
+        "🔥 **Fun Fact**: [Interesting fact about this drink/brand]\n\n"
+        
+        "End with: 'Want to try something similar? Here's a few recommendations:' followed by your suggestions.\n"
+        "Then ask: 'What would you like to know more about? 🍹'\n\n"
+        
+        "Be engaging, informative, and encourage follow-up questions. "
+        "If you can't identify something clearly, be honest but still provide helpful general information about what you can see."
     )
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         logging.info("Image encoded to base64")
 
         messages = [
-            {"role": "system", "content": "You are an expert assistant."},
+            {"role": "system", "content": "You are ARIA, an expert mixologist and drink advisor. You're knowledgeable about all types of alcoholic and non-alcoholic beverages, cocktails, spirits, wines, and their origins. Provide detailed, helpful, and engaging responses."},
             {
                 "role": "user",
                 "content": [
@@ -181,13 +191,131 @@ def generate_image_analysis(image_bytes):
             model="gpt-4o",
             messages=messages,
             temperature=0.3,
-            max_tokens=700,
+            max_tokens=1000,
         )
         logging.info("Image analysis response received from OpenAI")
         return response.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Image analysis failed: {str(e)}")
         return f"Error processing image: {str(e)}"
+
+
+# Generate structured image analysis response for image-only uploads
+def generate_structured_image_analysis(image_bytes):
+    prompt = (
+        "You are ARIA, an expert mixologist and alcohol identification specialist. "
+        "Analyze this image thoroughly and provide a comprehensive response about the drink/bottle shown. "
+        "Be conversational, informative, and helpful. Include the following information naturally in your response:\n\n"
+        
+        "Start with: 'Got it! Here's what I found:'\n\n"
+        
+        "🔍 **Identified Item**: [Specific name and brand]\n"
+        "🌍 **Origin**: [Country/region of origin]\n" 
+        "🍸 **Alcohol Content**: [ABV percentage if visible]\n"
+        "🌾 **Main Ingredient**: [Primary base spirit/ingredient]\n"
+        "💫 **Tasting Notes**: [Flavor profile, characteristics]\n"
+        "🍷 **Similar Items**: [3+ recommendations of similar products]\n"
+        "🍹 **Cocktail Ideas**: [2-3 specific cocktail suggestions using this item]\n"
+        "💰 **Price Range**: [Typical price range if known]\n"
+        "🔥 **Fun Fact**: [Interesting fact about this drink/brand]\n\n"
+        
+        "End with: 'Want to try something similar? Here's a few recommendations:' followed by your suggestions.\n"
+        "Then ask: 'What would you like to know more about? 🍹'\n\n"
+        
+        "Be engaging, informative, and encourage follow-up questions. "
+        "If you can't identify something clearly, be honest but still provide helpful general information about what you can see."
+    )
+    try:
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        logging.info("Image encoded to base64 for structured analysis")
+
+        messages = [
+            {"role": "system", "content": "You are ARIA, an expert mixologist and drink advisor. You're knowledgeable about all types of alcoholic and non-alcoholic beverages, cocktails, spirits, wines, and their origins. Provide detailed, helpful, and engaging responses."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                ],
+            },
+        ]
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1000,
+        )
+        logging.info("Structured image analysis response received from OpenAI")
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Structured image analysis failed: {str(e)}")
+        return f"Error processing image: {str(e)}"
+
+
+# Generate contextual image analysis response when text accompanies image
+def generate_contextual_image_analysis(image_bytes, user_message, session_id):
+    # Get chat history for context
+    full_history = get_chat_history(session_id)
+    limited_history = full_history[-6:]  # Last 6 messages for context
+    
+    try:
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        logging.info("Image encoded to base64 for contextual analysis")
+
+        # Build messages with conversation history and image
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are ARIA, an expert mixologist and drink advisor. You're knowledgeable about all types of "
+                    "alcoholic and non-alcoholic beverages, cocktails, spirits, wines, beers, and their origins. "
+                    "The user has sent you an image along with a text message. Analyze the image in the context "
+                    "of their message and conversation history. Provide helpful, detailed, and engaging responses "
+                    "about drinks, cocktails, ingredients, recipes, recommendations, and related topics. "
+                    "Be conversational and encouraging. Always consider the conversation history and context. "
+                    "Always end with a follow-up question or suggestion to keep the conversation going. "
+                    "Use emojis appropriately to make responses more engaging."
+                ),
+            }
+        ]
+        
+        # Add conversation history
+        messages.extend(limited_history)
+        
+        # Add current message with image
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_message},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                },
+            ],
+        })
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=400,
+        )
+        
+        reply = response.choices[0].message.content.strip()
+        logging.info("Contextual image analysis response received from OpenAI")
+        
+        # Save the conversation
+        save_message(session_id, "user", f"{user_message} [Image included]")
+        save_message(session_id, "assistant", reply)
+        
+        return reply
+    except Exception as e:
+        logging.error(f"Contextual image analysis failed: {str(e)}")
+        return f"Error processing image with context: {str(e)}"
 
 
 # Generate text response with last 5 messages
@@ -198,7 +326,12 @@ def generate_text_response(session_id, message):
 
     full_history = get_chat_history(session_id)
     full_history.append({"role": "user", "content": message})
-    limited_history = full_history[-5:]
+    limited_history = full_history[-8:]  # Increased from 5 to 8 for better context
+    
+    # Log context for debugging
+    logging.info(f"Chat context for session {session_id}: {len(limited_history)} messages")
+    for i, msg in enumerate(limited_history):
+        logging.info(f"Message {i}: {msg['role']} - {msg['content'][:100]}...")
 
     try:
         response = client.chat.completions.create(
@@ -207,15 +340,21 @@ def generate_text_response(session_id, message):
                 {
                     "role": "system",
                     "content": (
-                        "You are a friendly, expert assistant. "
-                        "Respond in 2-3 concise sentences with a conversational tone. "
-                        "Encourage follow-up questions with a prompt like '🍹 Got another question?'"
+                        "You are ARIA, an expert mixologist and drink advisor. You're knowledgeable about all types of "
+                        "alcoholic and non-alcoholic beverages, cocktails, spirits, wines, beers, and their origins. "
+                        "Provide helpful, detailed, and engaging responses about drinks, cocktails, ingredients, "
+                        "recipes, recommendations, and related topics. Be conversational and encouraging. "
+                        "IMPORTANT: Always consider the conversation history and context. If the user asks follow-up "
+                        "questions like 'where can I find them' or 'how much do they cost', refer back to what you "
+                        "previously discussed (specific drinks, brands, or recommendations you mentioned). "
+                        "Always end with a follow-up question or suggestion to keep the conversation going. "
+                        "Use emojis appropriately to make responses more engaging."
                     ),
                 },
                 *limited_history,
             ],
-            temperature=0.5,
-            max_tokens=100,
+            temperature=0.7,
+            max_tokens=300,
         )
         reply = response.choices[0].message.content.strip()
         logging.info(f"Text response generated: {reply[:50]}...")
@@ -239,6 +378,11 @@ def alcoholbot():
         )
         logging.info(f"Processing request for session {session_id}")
 
+        # Get text message first to determine handling strategy
+        message = request.form.get("message") or (
+            request.json.get("text") if request.is_json else None
+        )
+
         # Handle image via form-data
         image_file = request.files.get("image")
         if image_file and image_file.filename:
@@ -253,11 +397,23 @@ def alcoholbot():
                 image_bytes = byte_stream.getvalue()
                 logging.info("Image processed successfully")
 
-                image_response = generate_image_analysis(image_bytes)
-                response_data["image_response"] = image_response
-                response_data["uploaded_image"] = f"/{path.replace(os.sep, '/')}"
-                save_message(session_id, "user", "[Image Uploaded]")
-                save_message(session_id, "assistant", image_response)
+                # Decide which image analysis function to use
+                if message and message.strip():
+                    # User provided text with image - use contextual analysis
+                    logging.info("Using contextual image analysis (text + image)")
+                    image_response = generate_contextual_image_analysis(image_bytes, message, session_id)
+                    response_data["image_response"] = image_response
+                    # Don't process text separately since it's handled in contextual analysis
+                    message = None
+                else:
+                    # Image only - use structured analysis
+                    logging.info("Using structured image analysis (image only)")
+                    image_response = generate_structured_image_analysis(image_bytes)
+                    response_data["image_response"] = image_response
+                    response_data["uploaded_image"] = f"/{path.replace(os.sep, '/')}"
+                    save_message(session_id, "user", "[Image Uploaded]")
+                    save_message(session_id, "assistant", image_response)
+                    
             except Exception as e:
                 logging.error(f"Image processing failed: {str(e)}")
                 return (
@@ -282,10 +438,23 @@ def alcoholbot():
                 image_data = image_data.split(",")[1]
             try:
                 image_bytes = base64.b64decode(image_data)
-                image_response = generate_image_analysis(image_bytes)
-                response_data["image_response"] = image_response
-                save_message(session_id, "user", "[Image Base64]")
-                save_message(session_id, "assistant", image_response)
+                
+                # Decide which image analysis function to use
+                if message and message.strip():
+                    # User provided text with image - use contextual analysis
+                    logging.info("Using contextual image analysis (text + image)")
+                    image_response = generate_contextual_image_analysis(image_bytes, message, session_id)
+                    response_data["image_response"] = image_response
+                    # Don't process text separately since it's handled in contextual analysis
+                    message = None
+                else:
+                    # Image only - use structured analysis
+                    logging.info("Using structured image analysis (image only)")
+                    image_response = generate_structured_image_analysis(image_bytes)
+                    response_data["image_response"] = image_response
+                    save_message(session_id, "user", "[Image Base64]")
+                    save_message(session_id, "assistant", image_response)
+                    
             except Exception as e:
                 logging.error(f"Base64 image processing failed: {str(e)}")
                 return (
@@ -298,11 +467,8 @@ def alcoholbot():
                     400,
                 )
 
-        # Handle text message
-        message = request.form.get("message") or (
-            request.json.get("text") if request.is_json else None
-        )
-        if message:
+        # Handle remaining text message (only if not processed with image)
+        if message and message.strip():
             text_response = generate_text_response(session_id, message)
             response_data["text_response"] = text_response
 

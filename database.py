@@ -130,7 +130,9 @@ class DatabaseManager:
                     LIMIT %s
                 """, (session_id, limit))
                 
-                messages = cursor.fetchall()
+                rows = cursor.fetchall()
+                # Convert tuples to list of dictionaries
+                messages = [{"role": row[0], "content": row[1]} for row in rows]
             conn.close()
             return messages
         except Exception as e:
