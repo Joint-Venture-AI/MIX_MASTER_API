@@ -10,6 +10,7 @@ from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
 from flask_cors import CORS
+from database import db_manager
 
 # Configure logging
 logging.basicConfig(
@@ -49,11 +50,43 @@ except Exception as e:
 def serve_html():
     return send_file("chatbot.html")
 
+@app.route("/chatbot.html")
+def serve_chatbot():
+    return send_file("chatbot.html")
+
 
 # Serve static uploads
 @app.route("/static/uploads/<path:filename>")
 def serve_uploaded_file(filename):
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+# Health check endpoint
+@app.route("/api/health")
+def health_check():
+    return jsonify({"status": "healthy", "service": "Mix Master AI"})
+
+# Analytics endpoint
+@app.route("/api/analytics")
+def get_analytics():
+    try:
+        analytics = db_manager.get_analytics()
+        return jsonify({"success": True, "analytics": analytics})
+    except Exception as e:
+        logging.error(f"Analytics error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# Session stats endpoint
+@app.route("/api/session/<session_id>/stats")
+def get_session_stats(session_id):
+    try:
+        stats = db_manager.get_session_stats(session_id)
+        if stats:
+            return jsonify({"success": True, "stats": stats})
+        else:
+            return jsonify({"success": False, "error": "Session not found"}), 404
+    except Exception as e:
+        logging.error(f"Session stats error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # Database connection helper
@@ -84,40 +117,12 @@ def is_alcohol_related(message, session_id):
 
 # Save a chat message to DB
 def save_message(session_id, message_type, content):
-    conn = get_db()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO chat_history (session_id, message_type, content) VALUES (%s, %s, %s)",
-                (session_id, message_type, content),
-            )
-        logging.info(
-            f"Saved {message_type} message for session {session_id}: {content[:50]}..."
-        )
-    finally:
-        conn.close()
+    return db_manager.save_message(session_id, message_type, content)
 
 
 # Retrieve full chat history by session_id, oldest first
 def get_chat_history(session_id):
-    conn = get_db()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT message_type, content FROM chat_history WHERE session_id = %s ORDER BY timestamp ASC",
-                (session_id,),
-            )
-            rows = cursor.fetchall()
-            logging.info(f"Retrieved {len(rows)} messages for session {session_id}")
-            return [
-                {
-                    "role": "user" if row["message_type"] == "user" else "assistant",
-                    "content": row["content"],
-                }
-                for row in rows
-            ]
-    finally:
-        conn.close()
+    return db_manager.get_chat_history(session_id)
 
 
 # Clear chat history endpoint
@@ -128,16 +133,15 @@ def clear_history():
         logging.error("Clear history failed: session_id required")
         return jsonify({"success": False, "error": "session_id required"}), 400
 
-    conn = get_db()
     try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM chat_history WHERE session_id = %s", (session_id,)
-            )
-        logging.info(f"Cleared chat history for session {session_id}")
-        return jsonify({"success": True, "message": "Chat history cleared."})
-    finally:
-        conn.close()
+        success = db_manager.clear_chat_history(session_id)
+        if success:
+            return jsonify({"success": True, "message": "Chat history cleared."})
+        else:
+            return jsonify({"success": False, "error": "Failed to clear history"}), 500
+    except Exception as e:
+        logging.error(f"Clear history error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # Generate image analysis response from OpenAI

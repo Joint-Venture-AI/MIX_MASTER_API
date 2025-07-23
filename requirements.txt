@@ -4,3 +4,4 @@ python-dotenv
 pymysql
 Pillow
 openai
+requests
